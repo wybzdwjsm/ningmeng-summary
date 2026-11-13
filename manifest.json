@@ -1,0 +1,11 @@
+{
+    "display_name": "柠檬总结",
+    "loading_order": 1005,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "WorkBuddy",
+    "version": "1.1.0",
+    "homePage": ""
+}

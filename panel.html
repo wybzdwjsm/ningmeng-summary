@@ -1,0 +1,282 @@
+<div id="ccx-panel" class="ccx-panel" hidden>
+  <div class="ccx-header" id="ccx-drag-handle">
+    <div class="ccx-title">
+      <span class="ccx-logo">◈</span>
+      <span>柠檬总结<small>Ningmeng Summary · 就地改写聊天记录，不写世界书</small></span>
+    </div>
+    <div class="ccx-header-actions">
+      <button type="button" class="ccx-icon-btn" id="ccx-btn-min" title="收起/展开">—</button>
+      <button type="button" class="ccx-icon-btn" id="ccx-btn-close" title="关闭">×</button>
+    </div>
+  </div>
+
+  <div class="ccx-body" id="ccx-body">
+    <nav class="ccx-tabs">
+      <button type="button" class="ccx-tab-btn active" data-tab="home">压缩</button>
+      <button type="button" class="ccx-tab-btn" data-tab="api">API</button>
+      <button type="button" class="ccx-tab-btn" data-tab="prompt">提示词</button>
+      <button type="button" class="ccx-tab-btn" data-tab="auto">自动</button>
+      <button type="button" class="ccx-tab-btn" data-tab="archive">原文</button>
+      <button type="button" class="ccx-tab-btn" data-tab="backup">备份</button>
+      <button type="button" class="ccx-tab-btn" data-tab="adv">高级</button>
+    </nav>
+
+    <!-- ============ 压缩 ============ -->
+    <section class="ccx-pane active" data-pane="home">
+      <div class="ccx-stats">
+        <div class="ccx-stat"><span class="ccx-stat-v" id="ccx-stat-floors">0</span><span class="ccx-stat-k">总楼层</span></div>
+        <div class="ccx-stat"><span class="ccx-stat-v" id="ccx-stat-blocks">0</span><span class="ccx-stat-k">压缩块</span></div>
+        <div class="ccx-stat"><span class="ccx-stat-v" id="ccx-stat-chars">0</span><span class="ccx-stat-k">上文字数</span></div>
+        <div class="ccx-stat"><span class="ccx-stat-v" id="ccx-stat-tokens">—</span><span class="ccx-stat-k">估算 token</span></div>
+        <div class="ccx-stat ccx-stat-good"><span class="ccx-stat-v" id="ccx-stat-saved">0</span><span class="ccx-stat-k">累计省字</span></div>
+      </div>
+
+      <details class="ccx-sec" open>
+        <summary>手动压缩 · 指定任意楼层</summary>
+        <div class="ccx-sec-body">
+          <p class="ccx-note">楼层号与聊天区左侧的编号一致，从 <b>0</b> 开始、含首尾。压缩后，选中楼层会被<strong>替换成压缩记录</strong>：往上翻看到的就是压缩内容，发给模型的上下文同时变短。</p>
+          <div class="ccx-row ccx-row-3">
+            <label>从楼层<input type="number" id="ccx-manual-from" min="0" step="1" value="0"></label>
+            <label>到楼层<input type="number" id="ccx-manual-to" min="0" step="1" value="0"></label>
+            <label>每几楼压成一条<input type="number" id="ccx-chunk-size" min="1" step="1" value="10"></label>
+          </div>
+          <div class="ccx-row">
+            <button type="button" class="ccx-btn ccx-btn-ghost" id="ccx-btn-all">全选上文</button>
+            <button type="button" class="ccx-btn ccx-btn-ghost" id="ccx-btn-recent">保留最近 10 楼</button>
+            <button type="button" class="ccx-btn ccx-btn-ghost" id="ccx-btn-refresh">刷新统计</button>
+          </div>
+          <div class="ccx-row ccx-row-2">
+            <label>处理方式
+              <select id="ccx-mode">
+                <option value="chunk">按间隔分段（每 N 楼一条）</option>
+                <option value="merge">整段合并成一条</option>
+              </select>
+            </label>
+            <label class="ccx-check"><input type="checkbox" id="ccx-skip-compressed" checked> 跳过已压缩的楼层</label>
+          </div>
+          <div class="ccx-row">
+            <button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-run">▶ 压缩选中楼层</button>
+            <button type="button" class="ccx-btn ccx-btn-danger" id="ccx-btn-stop" disabled>■ 停止</button>
+            <button type="button" class="ccx-btn ccx-btn-ghost" id="ccx-btn-recompress">二次压缩（合并压缩块）</button>
+          </div>
+          <div class="ccx-progress" id="ccx-progress" hidden>
+            <div class="ccx-progress-bar"><span id="ccx-progress-bar"></span></div>
+            <div class="ccx-progress-text" id="ccx-progress-text"></div>
+          </div>
+        </div>
+      </details>
+
+      <details class="ccx-sec" open>
+        <summary>压缩后的聊天记录长什么样</summary>
+        <div class="ccx-sec-body">
+          <p class="ccx-note">压缩块是一条<strong>普通角色消息</strong>（不是系统消息、不是世界书条目），因此一定会进入后续生成的上下文。原文会随聊天文件一起备份，可随时还原。它会带一条紫色边框，点标题栏可折叠/展开。</p>
+          <div class="ccx-preview">【前情压缩 · 原第 0–9 楼】<br>- 事件一……<br>- 事件二……<br><span class="ccx-dim">（以上为已发生剧情的压缩记录……）</span></div>
+        </div>
+      </details>
+    </section>
+
+    <!-- ============ API ============ -->
+    <section class="ccx-pane" data-pane="api">
+      <div class="ccx-warn">密钥只保存在本机浏览器（localStorage），不会发往 SillyTavern 服务器。请勿在公共电脑上保存密钥。</div>
+      <details class="ccx-sec" open>
+        <summary>连接配置</summary>
+        <div class="ccx-sec-body">
+          <label>API 基础 URL<input type="text" id="ccx-api-url" placeholder="https://api-direct.27api.com/v1" spellcheck="false"></label>
+          <div class="ccx-row ccx-row-2">
+            <label>API 密钥（可选）
+              <div class="ccx-input-wrap"><input type="password" id="ccx-api-key" placeholder="sk-..." spellcheck="false" autocomplete="off"><button type="button" class="ccx-eye" id="ccx-key-toggle">👁</button></div>
+            </label>
+            <label>模型列表路径<input type="text" id="ccx-api-models-path" value="/models" spellcheck="false"></label>
+          </div>
+          <label>对话补全路径<input type="text" id="ccx-api-chat-path" value="/chat/completions" spellcheck="false"></label>
+          <div class="ccx-row">
+            <button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-save-api">保存 / 连接</button>
+            <button type="button" class="ccx-btn" id="ccx-btn-test">测试连接</button>
+            <button type="button" class="ccx-btn" id="ccx-btn-testgen">测试一次生成</button>
+            <button type="button" class="ccx-btn ccx-btn-danger" id="ccx-btn-clear-api">清除配置</button>
+          </div>
+          <div class="ccx-status-line" id="ccx-api-status">未配置</div>
+        </div>
+      </details>
+      <details class="ccx-sec" open>
+        <summary>选择模型</summary>
+        <div class="ccx-sec-body">
+          <div class="ccx-row">
+            <button type="button" class="ccx-btn" id="ccx-btn-models">↻ 加载模型列表</button>
+            <span class="ccx-hint">中转/自建端点若不支持 /models，可直接在下方手填。</span>
+          </div>
+          <label>模型列表<select id="ccx-model-select"><option value="">— 未加载 —</option></select></label>
+          <label>或手动填写模型名（填写即生效）<input type="text" id="ccx-model-custom" placeholder="grok-4.7" spellcheck="false"></label>
+          <div class="ccx-row"><button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-use-model">使用此模型</button></div>
+          <div class="ccx-status-line" id="ccx-model-status">当前模型：未选择</div>
+        </div>
+      </details>
+      <p class="ccx-note">兼容 OpenAI Chat Completions 格式。若浏览器直连报 CORS / 网络错误，请换用支持跨域的端点，或在「高级」里改用你自己的代理地址。</p>
+    </section>
+
+    <!-- ============ 提示词 ============ -->
+    <section class="ccx-pane" data-pane="prompt">
+      <details class="ccx-sec" open>
+        <summary>破限词 / 自定义系统提示（放请求最前面）</summary>
+        <div class="ccx-sec-body">
+          <p class="ccx-note">这里填你自己的内容，插件会<strong>原样</strong>作为第一条 system 消息发送，内置默认为空、不预置任何内容。留空即完全不发送。</p>
+          <textarea id="ccx-jailbreak" rows="6" placeholder="在此粘贴你自己的破限词 / 角色定义……"></textarea>
+          <div class="ccx-row"><button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-save-jb">保存破限词</button><button type="button" class="ccx-btn ccx-btn-danger" id="ccx-btn-clear-jb">清空</button></div>
+        </div>
+      </details>
+      <details class="ccx-sec" open>
+        <summary>压缩任务提示词（决定输出什么）</summary>
+        <div class="ccx-sec-body">
+          <div class="ccx-row ccx-row-2">
+            <label>预设<select id="ccx-preset-select"><option value="balanced">均衡（默认）</option><option value="compact">极简</option><option value="detailed">详实</option><option value="custom">自定义</option></select></label>
+            <span class="ccx-hint">切换预设会覆盖文本框内容，请先保存你的自定义版本。</span>
+          </div>
+          <textarea id="ccx-task-prompt" rows="12" spellcheck="false"></textarea>
+          <div class="ccx-row"><button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-save-task">保存提示词</button><button type="button" class="ccx-btn" id="ccx-btn-reset-task">恢复当前预设</button></div>
+        </div>
+      </details>
+      <details class="ccx-sec">
+        <summary>压缩块显示模板</summary>
+        <div class="ccx-sec-body">
+          <p class="ccx-note">可用占位符：<code>{from}</code> 起始楼层、<code>{to}</code> 结束楼层、<code>{summary}</code> 压缩正文。这段文本就是聊天里实际显示 / 发给模型的内容。</p>
+          <textarea id="ccx-block-template" rows="6" spellcheck="false"></textarea>
+          <div class="ccx-row"><button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-save-tpl">保存模板</button><button type="button" class="ccx-btn" id="ccx-btn-reset-tpl">恢复默认模板</button></div>
+        </div>
+      </details>
+      <details class="ccx-sec">
+        <summary>二次压缩提示词</summary>
+        <div class="ccx-sec-body">
+          <textarea id="ccx-recompress-prompt" rows="6" spellcheck="false"></textarea>
+          <div class="ccx-row"><button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-save-re">保存</button><button type="button" class="ccx-btn" id="ccx-btn-reset-re">恢复默认</button></div>
+        </div>
+      </details>
+    </section>
+
+    <!-- ============ 自动 ============ -->
+    <section class="ccx-pane" data-pane="auto">
+      <details class="ccx-sec" open>
+        <summary>自动检测 · 每 N 楼压缩一次</summary>
+        <div class="ccx-sec-body">
+          <label class="ccx-check"><input type="checkbox" id="ccx-auto-enabled"> 启用自动压缩</label>
+          <p class="ccx-note">插件会实时检测「上次压缩之后新增的未压缩楼层」。一旦达到阈值，就自动把靠前的旧楼层按分段大小压缩，末段最近的若干楼始终保留原文。</p>
+          <div class="ccx-row ccx-row-2">
+            <label>触发阈值（每多少楼一次）<input type="number" id="ccx-auto-interval" min="2" step="1" value="10"></label>
+            <label>每几楼压成一条<input type="number" id="ccx-auto-chunk" min="1" step="1" value="10"></label>
+          </div>
+          <div class="ccx-row ccx-row-2">
+            <label>保留最近几楼不压缩<input type="number" id="ccx-auto-keep" min="0" step="1" value="6"></label>
+            <label>触发时机<select id="ccx-auto-trigger"><option value="received">AI 回复后</option><option value="sent">用户发送后</option><option value="both">两者都检测</option></select></label>
+          </div>
+          <div class="ccx-row"><button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-save-auto">保存自动设置</button><button type="button" class="ccx-btn" id="ccx-btn-check-auto">立即检测一次</button></div>
+          <div class="ccx-status-line" id="ccx-auto-hint">—</div>
+        </div>
+      </details>
+      <details class="ccx-sec">
+        <summary>运行日志</summary>
+        <div class="ccx-sec-body"><div class="ccx-auto-log" id="ccx-auto-log">暂无自动压缩记录。</div></div>
+      </details>
+    </section>
+
+    <!-- ============ 原文 ============ -->
+    <section class="ccx-pane" data-pane="archive">
+      <details class="ccx-sec" open>
+        <summary>楼层预览 / 按楼层还原</summary>
+        <div class="ccx-sec-body">
+          <p class="ccx-note">输入<b>压缩前的原始楼层号</b>（压缩块标签上的「原 X–Y 楼」），支持 <code>3</code>、<code>3-7</code>、<code>3,5,9</code>。也可以输入<b>当前聊天楼层号</b>：若该楼是压缩块会展开它的全部原文，若是普通消息则直接显示内容。</p>
+          <div class="ccx-row">
+            <label class="ccx-arch-floor">楼层号<input type="text" id="ccx-arch-floors" placeholder="例如 3-7 或 3,5,9" spellcheck="false"></label>
+            <button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-arch-preview">预览原文</button>
+            <button type="button" class="ccx-btn" id="ccx-btn-arch-viewer">大窗查看</button>
+          </div>
+          <p class="ccx-note">「预览」是<b>只读</b>的，不会改动聊天记录。勾选想要的条目后点下面的按钮才会真正还原；压缩块里其余楼层仍然保持压缩。</p>
+          <div class="ccx-row">
+            <button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-arch-restore">还原勾选的楼层</button>
+            <button type="button" class="ccx-btn" id="ccx-btn-arch-selectall">全选 / 清空</button>
+          </div>
+          <div class="ccx-arch-result" id="ccx-arch-result"></div>
+        </div>
+      </details>
+      <details class="ccx-sec" open>
+        <summary>当前聊天里的压缩块</summary>
+        <div class="ccx-sec-body">
+          <div class="ccx-row"><button type="button" class="ccx-btn" id="ccx-btn-arch-refresh">刷新列表</button></div>
+          <div id="ccx-arch-blocks"></div>
+          <p class="ccx-note">压缩块在聊天区里也带有「原文 / 全部还原」按钮。没有内联原文的块（在备份页清过）无法逐层还原，只能用快照整体恢复。</p>
+        </div>
+      </details>
+    </section>
+
+    <!-- ============ 备份 ============ -->
+    <section class="ccx-pane" data-pane="backup">
+      <div class="ccx-warn">压缩会改写聊天记录。建议第一次使用前先「导出完整备份」或「新建快照」。压缩前插件也会自动存一份快照到浏览器 IndexedDB。</div>
+      <details class="ccx-sec" open>
+        <summary>原文备份（随聊天文件保存）</summary>
+        <div class="ccx-sec-body">
+          <label class="ccx-check"><input type="checkbox" id="ccx-inline-backup" checked> 把被替换的原文存入压缩块的 extra 字段（不进入上下文，不影响 token）</label>
+          <p class="ccx-note">开启后，即使换浏览器、换设备，只要聊天文件在就能还原。关闭可让聊天文件更小，但只能靠下面的快照还原。</p>
+          <div class="ccx-row">
+            <button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-restore-all">还原全部压缩块</button>
+            <button type="button" class="ccx-btn" id="ccx-btn-export">导出完整备份 JSON</button>
+            <button type="button" class="ccx-btn ccx-btn-danger" id="ccx-btn-strip-backups">清除内联原文</button>
+          </div>
+        </div>
+      </details>
+      <details class="ccx-sec" open>
+        <summary>快照（浏览器本地，IndexedDB）</summary>
+        <div class="ccx-sec-body">
+          <div class="ccx-row"><button type="button" class="ccx-btn" id="ccx-btn-snapshot">＋ 新建快照</button><button type="button" class="ccx-btn ccx-btn-ghost" id="ccx-btn-snapshot-refresh">刷新列表</button></div>
+          <div id="ccx-snapshot-list" class="ccx-snap-list">读取中…</div>
+          <div class="ccx-status-line" id="ccx-backup-hint">—</div>
+        </div>
+      </details>
+    </section>
+
+    <!-- ============ 高级 ============ -->
+    <section class="ccx-pane" data-pane="adv">
+      <details class="ccx-sec" open>
+        <summary>请求参数</summary>
+        <div class="ccx-sec-body">
+          <div class="ccx-row ccx-row-2">
+            <label>temperature<input type="number" id="ccx-adv-temperature" min="0" max="2" step="0.1" value="0.3"></label>
+            <label class="ccx-check"><input type="checkbox" id="ccx-adv-send-temp" checked> 发送 temperature（推理模型可关闭）</label>
+          </div>
+          <div class="ccx-row ccx-row-2">
+            <label>最大输出 token<input type="number" id="ccx-adv-max-tokens" min="256" step="256" value="4096"></label>
+            <label>token 参数名<select id="ccx-adv-token-field"><option value="max_tokens">max_tokens</option><option value="max_completion_tokens">max_completion_tokens</option></select></label>
+          </div>
+          <div class="ccx-row ccx-row-2">
+            <label>请求超时（秒）<input type="number" id="ccx-adv-timeout" min="10" step="10" value="180"></label>
+            <label>单次送模最大原文字数（0=不限）<input type="number" id="ccx-adv-max-input" min="0" step="2000" value="0"></label>
+          </div>
+          <label>自定义代理 / 完整端点前缀（可留空）<input type="text" id="ccx-adv-proxy" placeholder="留空则直连上方 Base URL" spellcheck="false"></label>
+          <label>压缩块作为<select id="ccx-adv-block-role"><option value="assistant">角色消息（推荐，进入上下文）</option><option value="user">用户消息</option></select></label>
+          <label class="ccx-check"><input type="checkbox" id="ccx-adv-add-guide" checked> 在压缩块末尾附引导说明</label>
+          <div class="ccx-row"><button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-save-adv">保存高级设置</button></div>
+        </div>
+      </details>
+      <details class="ccx-sec">
+        <summary>界面与维护</summary>
+        <div class="ccx-sec-body">
+          <label class="ccx-check"><input type="checkbox" id="ccx-adv-ball" checked> 显示悬浮球</label>
+          <div class="ccx-row">
+            <button type="button" class="ccx-btn" id="ccx-btn-reset-ball">重置悬浮球位置</button>
+            <button type="button" class="ccx-btn" id="ccx-btn-reload-chat">重新载入当前聊天</button>
+            <button type="button" class="ccx-btn ccx-btn-danger" id="ccx-btn-reset-all">恢复全部默认设置</button>
+          </div>
+          <div class="ccx-row">
+            <button type="button" class="ccx-btn" id="ccx-btn-export-settings">导出设置（跨设备迁移）</button>
+            <button type="button" class="ccx-btn" id="ccx-btn-import-settings">导入设置</button>
+            <input type="file" id="ccx-import-file" accept=".json,application/json" hidden>
+          </div>
+          <p class="ccx-note">API 配置、破限词、压缩提示词、模板与自动压缩参数保存在<b>浏览器本地</b>，不会随插件或聊天文件同步。换设备时先在这里导出、再导入即可。导出的文件<b>包含 API 密钥</b>，请妥善保管。</p>
+          <p class="ccx-note">「重新载入当前聊天」会丢弃内存中未保存的改动、从服务器重新读取聊天文件，可用于撤回误操作。</p>
+        </div>
+      </details>
+    </section>
+  </div>
+
+  <div class="ccx-footer">
+    <div class="ccx-footer-head"><span id="ccx-status">就绪</span><button type="button" class="ccx-icon-btn" id="ccx-btn-clear-log" title="清空日志">⌫</button></div>
+    <div class="ccx-log" id="ccx-log"></div>
+  </div>
+</div>
