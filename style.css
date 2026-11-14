@@ -238,6 +238,7 @@
 .ccx-block-btn:hover { opacity: 1; border-color: var(--ccx-accent); }
 
 /* ---------- 原文预览 / 查看器 ---------- */
+.ccx-len-field[hidden] { display: none !important; }
 .ccx-arch-floor { flex: 1 1 180px; }
 .ccx-arch-result {
     margin-top: 10px; max-height: 320px; overflow-y: auto;

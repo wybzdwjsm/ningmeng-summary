@@ -66,6 +66,8 @@ const DEFAULT_CONFIG = {
     blockTemplate: DEFAULT_BLOCK_TEMPLATE,
     recompressPrompt: DEFAULT_RECOMPRESS_PROMPT,
     manual: { from: 0, to: 0, chunk: 10, mode: 'chunk', skipCompressed: true },
+    // 输出字数：off / ratio(按原文百分比) / perChunk(每段固定字数) / total(整次总字数，均分到各段)
+    length: { mode: 'off', ratio: 20, perChunk: 300, total: 800, override: true },
     auto: { enabled: false, interval: 10, chunk: 10, keep: 6, trigger: 'received', log: [] },
     adv: {
         temperature: 0.3, sendTemp: true, maxTokens: 4096, tokenField: 'max_tokens',
@@ -217,6 +219,42 @@ function cleanSummary(text) {
     t = t.replace(/</g, '〈').replace(/>/g, '〉');
     return t.trim();
 }
+/** 计算本次请求的目标字数；返回 null 表示不限制（沿用提示词自己的长度要求） */
+function computeTargetChars(originalChars, segmentCount = 1) {
+    const cfg = config.length || DEFAULT_CONFIG.length;
+    const mode = cfg.mode || 'off';
+    const chars = Math.max(1, Number(originalChars) || 0);
+    if (mode === 'ratio') {
+        const pct = Math.min(100, Math.max(1, Number(cfg.ratio) || 20));
+        return Math.max(30, Math.round(chars * pct / 100));
+    }
+    if (mode === 'perChunk') {
+        return Math.max(30, Math.round(Number(cfg.perChunk) || 300));
+    }
+    if (mode === 'total') {
+        const total = Math.max(30, Math.round(Number(cfg.total) || 800));
+        return Math.max(30, Math.round(total / Math.max(1, segmentCount)));
+    }
+    return null;
+}
+/** 生成高优先级长度指令；作为 system 提示词的最后一段注入 */
+function describeLengthMode() {
+    const cfg = config.length || DEFAULT_CONFIG.length;
+    if (cfg.mode === 'ratio') return `按原文的 ${cfg.ratio}%`;
+    if (cfg.mode === 'perChunk') return `每段约 ${cfg.perChunk} 字`;
+    if (cfg.mode === 'total') return `整次共约 ${cfg.total} 字（自动均分到各段）`;
+    return '不限制（沿用提示词里的长度要求）';
+}
+function buildLengthInstruction(targetChars, originalChars) {
+    if (!targetChars) return '';
+    const override = config.length?.override !== false;
+    const head = override
+        ? '【本次输出长度要求｜优先级最高，覆盖前面提示词里所有关于长度 / 篇幅的描述】'
+        : '【本次输出长度要求｜若与前面提示词冲突，以前面的描述为准】';
+    return `${head}\n本次压缩结果请控制在约 ${targetChars} 字（本次原文约 ${originalChars} 字），允许上下浮动 15%，但不要超过 ${Math.round(targetChars * 1.15)} 字。\n`
+        + '字数不够时优先删去氛围描写、重复动作与无信息量对白，不得删掉具体名称、数字、时间、约定、未解决的冲突与伏笔。\n'
+        + '仍然只输出记录正文，不要写标题、解释，也不要提及这段长度要求。';
+}
 function renderBlockTemplate(from, to, summary) {
     const tpl = String(config.blockTemplate || DEFAULT_BLOCK_TEMPLATE);
     return tpl
@@ -302,13 +340,21 @@ async function callChat(messages, maxTokensOverride) {
     if (!content.trim()) throw new Error('模型返回内容为空（推理模型可能需要更大的 max_tokens，或结果在其它字段）');
     return { content, usage: data?.usage ?? null, raw: data };
 }
-async function requestSummary(originalText, promptText) {
-    const systemParts = [String(config.jailbreak || '').trim(), String(promptText || PRESETS.balanced).trim()].filter(Boolean);
+async function requestSummary(originalText, promptText, targetChars = null) {
+    const lengthInstruction = buildLengthInstruction(targetChars, String(originalText || '').length);
+    const systemParts = [
+        String(config.jailbreak || '').trim(),
+        String(promptText || PRESETS.balanced).trim(),
+        lengthInstruction,
+    ].filter(Boolean);
     const messages = [
         { role: 'system', content: systemParts.join('\n\n----\n\n') || PRESETS.balanced },
         { role: 'user', content: `以下是需要压缩的聊天记录原文：\n\n${originalText}\n\n请严格按照系统提示的要求输出压缩结果。` },
     ];
-    const { content } = await callChat(messages);
+    // 目标字数较大时自动抬高 max_tokens，避免结果被 API 截断
+    const baseTokens = Number(config.adv.maxTokens) || 4096;
+    const needed = targetChars ? Math.ceil(targetChars * 2) + 256 : 0;
+    const { content } = await callChat(messages, Math.max(baseTokens, needed));
     const cleaned = cleanSummary(content);
     if (!cleaned) throw new Error('模型返回内容清洗后为空');
     return cleaned;
@@ -507,6 +553,7 @@ async function runCompression({ from, to, chunk, mode, skip, reason = '手动' }
     stopFlag = false;
     setBusy(true);
     log(`${reason}压缩开始：楼层 ${from}–${to}，共 ${segments.length} 段，模型 ${config.api.model}`);
+    if ((config.length?.mode || 'off') !== 'off') log(`输出字数：${describeLengthMode()}`);
     if (reason === '自动') appendAutoLog(`触发压缩：${from}–${to} 楼，${segments.length} 段`);
 
     const reps = [];
@@ -530,18 +577,20 @@ async function runCompression({ from, to, chunk, mode, skip, reason = '手动' }
                 const originals = seg.indices.map(idx => chat[idx]);
                 const originalText = formatOriginal(chat, seg.indices);
                 const inputText = truncateMiddle(originalText, Number(config.adv.maxInput) || 0);
-                const summary = await requestSummary(inputText, config.taskPrompt);
+                const targetChars = computeTargetChars(inputText.length, segments.length);
+                const summary = await requestSummary(inputText, config.taskPrompt, targetChars);
                 const beforeChars = originals.reduce((s, m) => s + String(m?.mes ?? '').length, 0);
                 const stats = {
                     beforeChars,
                     afterChars: summary.length,
+                    targetChars: targetChars || 0,
                     beforeTokens: estimateTokens(originalText),
                     afterTokens: estimateTokens(summary),
                 };
                 const msg = makeBlock(summary, seg.indices, originals.map(clone), stats, originals[0]);
                 reps.push({ indices: seg.indices, message: msg });
                 okCount++;
-                log(`✓ 第 ${i + 1} 段完成：${first}–${last} 楼，${beforeChars} 字 → ${summary.length} 字`, 'ok');
+                log(`✓ 第 ${i + 1} 段完成：${first}–${last} 楼，${beforeChars} 字 → ${summary.length} 字${targetChars ? `（目标 ${targetChars} 字）` : ''}`, 'ok');
             } catch (e) {
                 failCount++;
                 const msg = friendlyError(e);
@@ -587,8 +636,9 @@ async function recompress() {
         const blocks = idxs.map(i => chat[i]);
         const text = blocks.map(b => String(b.mes ?? '')).join('\n\n---\n\n');
         const input = truncateMiddle(text, Number(config.adv.maxInput) || 0);
-        log(`二次压缩：合并 ${idxs.length} 个压缩块，输入 ${input.length} 字`);
-        const summary = await requestSummary(input, config.recompressPrompt);
+        const targetChars = computeTargetChars(input.length, 1);
+        log(`二次压缩：合并 ${idxs.length} 个压缩块，输入 ${input.length} 字${targetChars ? `，目标 ${targetChars} 字` : ''}`);
+        const summary = await requestSummary(input, config.recompressPrompt, targetChars);
         const originals = [];
         const floors = [];
         for (const b of blocks) {
@@ -1341,6 +1391,33 @@ function switchTab(name) {
         if (p.dataset.pane === name) p.classList.add('active'); else p.classList.remove('active');
     });
 }
+function updateLengthFields() {
+    const mode = $id('ccx-length-mode')?.value || 'off';
+    document.querySelectorAll('.ccx-len-field').forEach(el => { el.hidden = el.dataset.len !== mode; });
+}
+function updateLengthHint() {
+    const el = $id('ccx-length-hint');
+    if (el) el.textContent = `当前：${describeLengthMode()}`;
+}
+function previewLengthTargets() {
+    syncFromUI();
+    const chat = getChat();
+    if (!chat.length) { toast('当前没有聊天记录', 'warning'); return; }
+    let from = clampInt(config.manual.from, 0, chat.length - 1, 0);
+    let to = clampInt(config.manual.to, 0, chat.length - 1, chat.length - 1);
+    if (from > to) [from, to] = [to, from];
+    const segs = splitSegments(chat, from, to, config.manual.chunk,
+        config.manual.skipCompressed, config.manual.mode === 'merge');
+    if (!segs.length) { toast('范围内没有可压缩的楼层', 'warning'); return; }
+    const targets = segs.map(s => computeTargetChars(formatOriginal(chat, s.indices).length, segs.length));
+    const total = targets.reduce((a, b) => a + (b || 0), 0);
+    const head = targets.slice(0, 4).join(' / ');
+    const text = `当前：${describeLengthMode()}｜${from}–${to} 楼共 ${segs.length} 段，`
+        + (targets[0] ? `每段目标 ${head}${targets.length > 4 ? ' …' : ''} 字，合计约 ${total} 字` : '不限制');
+    const hint = $id('ccx-length-hint');
+    if (hint) hint.textContent = text;
+    log(`字数预览：${text}`, 'ok');
+}
 function loadConfigToUI() {
     const set = (id, v, checked = false) => {
         const el = $id(id);
@@ -1354,6 +1431,15 @@ function loadConfigToUI() {
     set('ccx-chunk-size', config.manual.chunk);
     set('ccx-mode', config.manual.mode);
     set('ccx-skip-compressed', config.manual.skipCompressed, true);
+    // 输出字数
+    const len = config.length || DEFAULT_CONFIG.length;
+    set('ccx-length-mode', len.mode);
+    set('ccx-length-ratio', len.ratio);
+    set('ccx-length-perchunk', len.perChunk);
+    set('ccx-length-total', len.total);
+    set('ccx-length-override', len.override, true);
+    updateLengthFields();
+    updateLengthHint();
     // API
     set('ccx-api-url', config.api.url);
     set('ccx-api-key', config.api.key);
@@ -1404,6 +1490,12 @@ function syncFromUI() {
     config.manual.chunk = Math.max(1, n('ccx-chunk-size', 10));
     config.manual.mode = v('ccx-mode') || 'chunk';
     config.manual.skipCompressed = c('ccx-skip-compressed');
+    config.length = config.length || clone(DEFAULT_CONFIG.length);
+    config.length.mode = v('ccx-length-mode') || 'off';
+    config.length.ratio = clampInt(v('ccx-length-ratio'), 1, 100, 20);
+    config.length.perChunk = clampInt(v('ccx-length-perchunk'), 30, 1000000, 300);
+    config.length.total = clampInt(v('ccx-length-total'), 30, 10000000, 800);
+    config.length.override = c('ccx-length-override');
     config.api.url = v('ccx-api-url').trim();
     config.api.key = v('ccx-api-key').trim();
     config.api.modelsPath = v('ccx-api-models-path') || '/models';
@@ -1624,6 +1716,20 @@ function bindUI() {
         log('已请求停止，将在当前请求结束后停止');
     });
     $id('ccx-btn-recompress')?.addEventListener('click', recompress);
+
+    // 输出字数
+    $id('ccx-length-mode')?.addEventListener('change', () => {
+        syncFromUI();
+        updateLengthFields();
+        updateLengthHint();
+    });
+    $id('ccx-btn-length-save')?.addEventListener('click', () => {
+        syncFromUI();
+        updateLengthFields();
+        updateLengthHint();
+        toast('字数设置已保存', 'success');
+    });
+    $id('ccx-btn-length-preview')?.addEventListener('click', previewLengthTargets);
 
     // API
     $id('ccx-key-toggle')?.addEventListener('click', () => {

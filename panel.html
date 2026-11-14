@@ -67,6 +67,31 @@
       </details>
 
       <details class="ccx-sec" open>
+        <summary>输出字数（自定义总结长短）</summary>
+        <div class="ccx-sec-body">
+          <p class="ccx-note">控制压缩结果有多长。会作为<b>高优先级指令</b>追加到提示词末尾，对手动压缩、自动压缩、二次压缩<b>全部生效</b>。</p>
+          <label>模式
+            <select id="ccx-length-mode">
+              <option value="off">不限制（沿用提示词）</option>
+              <option value="ratio">按原文比例</option>
+              <option value="perChunk">每段固定字数</option>
+              <option value="total">整次总字数（自动均分）</option>
+            </select>
+          </label>
+          <label class="ccx-len-field" data-len="ratio">原文比例（%）<input type="number" id="ccx-length-ratio" min="1" max="100" step="1" value="20"></label>
+          <label class="ccx-len-field" data-len="perChunk">每段字数<input type="number" id="ccx-length-perchunk" min="30" step="50" value="300"></label>
+          <label class="ccx-len-field" data-len="total">整次总字数<input type="number" id="ccx-length-total" min="30" step="100" value="800"></label>
+          <label class="ccx-check"><input type="checkbox" id="ccx-length-override" checked> 优先于提示词里自带的长度要求（建议开启）</label>
+          <div class="ccx-row">
+            <button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-length-save">保存字数设置</button>
+            <button type="button" class="ccx-btn" id="ccx-btn-length-preview">预览本次目标</button>
+          </div>
+          <div class="ccx-status-line" id="ccx-length-hint">当前：不限制（沿用提示词）</div>
+          <p class="ccx-note">「整次总字数」会按本次分段数均分，例如 8 段、总 800 字 → 每段约 100 字。目标较大时会自动抬高 max_tokens 防止结果被截断；实际字数仍以模型输出为准，日志会显示目标与实际值。</p>
+        </div>
+      </details>
+
+      <details class="ccx-sec" open>
         <summary>压缩后的聊天记录长什么样</summary>
         <div class="ccx-sec-body">
           <p class="ccx-note">压缩块是一条<strong>普通角色消息</strong>（不是系统消息、不是世界书条目），因此一定会进入后续生成的上下文。原文会随聊天文件一起备份，可随时还原。它会带一条紫色边框，点标题栏可折叠/展开。</p>
