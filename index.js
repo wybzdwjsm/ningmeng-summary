@@ -68,6 +68,8 @@ const DEFAULT_CONFIG = {
     manual: { from: 0, to: 0, chunk: 10, mode: 'chunk', skipCompressed: true },
     // 输出字数：off / ratio(按原文百分比) / perChunk(每段固定字数) / total(整次总字数，均分到各段)
     length: { mode: 'off', ratio: 20, perChunk: 300, total: 800, override: true },
+    // 请求节流：避免批量压缩连续发请求被上游风控
+    throttle: { enabled: true, gapSec: 2, minSec: 5, maxSec: 15 },
     auto: { enabled: false, interval: 10, chunk: 10, keep: 6, trigger: 'received', log: [] },
     adv: {
         temperature: 0.3, sendTemp: true, maxTokens: 4096, tokenField: 'max_tokens',
@@ -99,6 +101,7 @@ let uiState = loadUI();
 let busy = false;
 let stopFlag = false;
 let activeController = null;
+let lastRequestAt = 0;
 let autoTimer = null;
 let autoRunning = false;
 let decorateTimer = null;
@@ -277,6 +280,38 @@ function friendlyError(e) {
     return m.slice(0, 400);
 }
 
+/* ---------------- 请求节流 / 随机延迟 ---------------- */
+
+function randBetween(minSec, maxSec) {
+    const a = Math.max(0, Number(minSec) || 0);
+    const b = Math.max(a, Number(maxSec) || 0);
+    return (a + Math.random() * (b - a)) * 1000;
+}
+/** 分片等待，期间可随时中止（用户点「停止」时不必干等） */
+async function pacedWait(ms, shouldAbort, onTick) {
+    let left = Math.max(0, Number(ms) || 0);
+    while (left > 0) {
+        if (shouldAbort?.()) throw new Error('请求已取消');
+        const step = Math.min(200, left);
+        await new Promise(r => setTimeout(r, step));
+        left -= step;
+        onTick?.(left);
+    }
+}
+/** 任意两次生成请求之间的随机最小间隔；GET /models 等管理请求不受影响 */
+async function throttleBeforeRequest() {
+    const t = config.throttle || DEFAULT_CONFIG.throttle;
+    if (!t.enabled) return;
+    const gap = Math.max(0, Number(t.gapSec) || 0);
+    const targetMs = randBetween(gap, gap * 2);
+    const wait = Math.max(0, targetMs - (Date.now() - lastRequestAt));
+    if (wait > 0) {
+        log(`请求节流：随机等待 ${(wait / 1000).toFixed(1)} 秒`);
+        await pacedWait(wait, () => stopFlag);
+    }
+    lastRequestAt = Date.now();
+}
+
 /* ---------------- API ---------------- */
 
 function buildApiUrl(path) {
@@ -288,7 +323,9 @@ function buildApiUrl(path) {
     return base + p;
 }
 async function apiFetch(path, body, timeoutSec) {
-    const url = buildApiUrl(path);
+    const url = buildApiUrl(path); // 先做参数校验，避免配置没填好还白等几秒
+    // 只对 POST（生成 / 压缩）节流，模型列表等 GET 请求保持即时
+    if (body) await throttleBeforeRequest();
     const headers = { 'Content-Type': 'application/json' };
     if (config.api.key) headers['Authorization'] = `Bearer ${config.api.key}`;
     const ctrl = new AbortController();
@@ -596,6 +633,28 @@ async function runCompression({ from, to, chunk, mode, skip, reason = '手动' }
                 const msg = friendlyError(e);
                 log(`✗ 第 ${i + 1} 段失败（${first}–${last} 楼）：${msg}`, 'err');
                 if (stopFlag || /取消|超时/.test(msg)) break;
+            }
+
+            // 段间额外随机延迟：批量压缩时避免连续请求被上游风控识别
+            const thr = config.throttle || DEFAULT_CONFIG.throttle;
+            if (!stopFlag && i < segments.length - 1 && thr.enabled) {
+                const waitMs = randBetween(thr.minSec, thr.maxSec);
+                if (waitMs > 0) {
+                    log(`段间随机延迟 ${(waitMs / 1000).toFixed(1)} 秒`);
+                    let lastShown = -1;
+                    try {
+                        await pacedWait(waitMs, () => stopFlag, left => {
+                            const sec = Math.ceil(left / 1000);
+                            if (sec !== lastShown) {
+                                lastShown = sec;
+                                setProgress(i + 1, segments.length, `第 ${i + 1}/${segments.length} 段完成，${sec} 秒后继续…`);
+                            }
+                        });
+                    } catch {
+                        log('等待期间收到停止指令');
+                        break;
+                    }
+                }
             }
         }
 
@@ -1202,7 +1261,8 @@ function scheduleAuto(force = false) {
         } finally {
             autoRunning = false;
         }
-    }, force ? 50 : 1800);
+    // 自动压缩触发时机也加随机抖动，避免每次都固定在同一秒发起
+    }, force ? 50 : 1800 + (config.throttle?.enabled ? Math.floor(Math.random() * 3000) : 0));
 }
 function onChatEvent(kind) {
     scheduleDecorate();
@@ -1399,6 +1459,14 @@ function updateLengthHint() {
     const el = $id('ccx-length-hint');
     if (el) el.textContent = `当前：${describeLengthMode()}`;
 }
+function updateThrottleHint() {
+    const el = $id('ccx-throttle-hint');
+    if (!el) return;
+    const t = config.throttle || DEFAULT_CONFIG.throttle;
+    el.textContent = t.enabled
+        ? `当前：开启｜生成请求间隔 ${t.gapSec}～${Number(t.gapSec) * 2} 秒，段间额外 ${t.minSec}～${t.maxSec} 秒`
+        : '当前：关闭（请求会连续发出，可能触发上游风控）';
+}
 function previewLengthTargets() {
     syncFromUI();
     const chat = getChat();
@@ -1440,6 +1508,13 @@ function loadConfigToUI() {
     set('ccx-length-override', len.override, true);
     updateLengthFields();
     updateLengthHint();
+    // 请求节流
+    const thr = config.throttle || DEFAULT_CONFIG.throttle;
+    set('ccx-throttle-enabled', thr.enabled, true);
+    set('ccx-throttle-gap', thr.gapSec);
+    set('ccx-throttle-min', thr.minSec);
+    set('ccx-throttle-max', thr.maxSec);
+    updateThrottleHint();
     // API
     set('ccx-api-url', config.api.url);
     set('ccx-api-key', config.api.key);
@@ -1496,6 +1571,12 @@ function syncFromUI() {
     config.length.perChunk = clampInt(v('ccx-length-perchunk'), 30, 1000000, 300);
     config.length.total = clampInt(v('ccx-length-total'), 30, 10000000, 800);
     config.length.override = c('ccx-length-override');
+    config.throttle = config.throttle || clone(DEFAULT_CONFIG.throttle);
+    config.throttle.enabled = c('ccx-throttle-enabled');
+    config.throttle.gapSec = clampInt(v('ccx-throttle-gap'), 0, 600, 2);
+    config.throttle.minSec = clampInt(v('ccx-throttle-min'), 0, 3600, 5);
+    config.throttle.maxSec = clampInt(v('ccx-throttle-max'), 0, 3600, 15);
+    if (config.throttle.maxSec < config.throttle.minSec) config.throttle.maxSec = config.throttle.minSec;
     config.api.url = v('ccx-api-url').trim();
     config.api.key = v('ccx-api-key').trim();
     config.api.modelsPath = v('ccx-api-models-path') || '/models';
@@ -1730,6 +1811,15 @@ function bindUI() {
         toast('字数设置已保存', 'success');
     });
     $id('ccx-btn-length-preview')?.addEventListener('click', previewLengthTargets);
+
+    // 请求节流
+    ['ccx-throttle-enabled', 'ccx-throttle-gap', 'ccx-throttle-min', 'ccx-throttle-max']
+        .forEach(id => $id(id)?.addEventListener('change', updateThrottleHint));
+    $id('ccx-btn-throttle-save')?.addEventListener('click', () => {
+        syncFromUI();
+        updateThrottleHint();
+        toast('节流设置已保存', 'success');
+    });
 
     // API
     $id('ccx-key-toggle')?.addEventListener('click', () => {

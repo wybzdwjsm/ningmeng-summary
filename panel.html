@@ -92,6 +92,22 @@
       </details>
 
       <details class="ccx-sec" open>
+        <summary>请求节流 · 随机延迟（防上游风控）</summary>
+        <div class="ccx-sec-body">
+          <p class="ccx-note">多段压缩会在短时间内连发请求，容易被上游判定为异常流量。开启后，所有<b>生成请求</b>之间至少间隔一段随机时间，批量压缩的每段之间再额外随机等待；模型列表等 GET 请求不受影响，仍然即时。</p>
+          <label class="ccx-check"><input type="checkbox" id="ccx-throttle-enabled" checked> 启用随机延迟（建议开启）</label>
+          <div class="ccx-row ccx-row-3">
+            <label>请求最小间隔（秒）<input type="number" id="ccx-throttle-gap" min="0" step="1" value="2"></label>
+            <label>段间最短（秒）<input type="number" id="ccx-throttle-min" min="0" step="1" value="5"></label>
+            <label>段间最长（秒）<input type="number" id="ccx-throttle-max" min="0" step="1" value="15"></label>
+          </div>
+          <div class="ccx-row"><button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-throttle-save">保存节流设置</button></div>
+          <div class="ccx-status-line" id="ccx-throttle-hint">—</div>
+          <p class="ccx-note">「请求最小间隔」实际等待该值到两倍之间的随机数（填 2 → 每次等 2～4 秒）；「段间」是在此之外额外等待，默认 5～15 秒。自动压缩的触发时机也会自动加 0～3 秒抖动。等待过程中可以随时点「停止」，不会干等。</p>
+        </div>
+      </details>
+
+      <details class="ccx-sec" open>
         <summary>压缩后的聊天记录长什么样</summary>
         <div class="ccx-sec-body">
           <p class="ccx-note">压缩块是一条<strong>普通角色消息</strong>（不是系统消息、不是世界书条目），因此一定会进入后续生成的上下文。原文会随聊天文件一起备份，可随时还原。它会带一条紫色边框，点标题栏可折叠/展开。</p>
