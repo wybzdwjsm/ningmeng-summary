@@ -70,7 +70,7 @@ const DEFAULT_CONFIG = {
     length: { mode: 'off', ratio: 20, perChunk: 300, total: 800, override: true },
     // 请求节流：避免批量压缩连续发请求被上游风控
     throttle: { enabled: true, gapSec: 2, minSec: 5, maxSec: 15 },
-    auto: { enabled: false, interval: 10, chunk: 10, keep: 6, trigger: 'received', log: [] },
+    auto: { enabled: false, interval: 10, chunk: 10, keep: 6, trigger: 'received', cooldownSec: 120, maxChunks: 3, log: [] },
     adv: {
         temperature: 0.3, sendTemp: true, maxTokens: 4096, tokenField: 'max_tokens',
         timeout: 180, maxInput: 0, blockRole: 'assistant', addGuide: true,
@@ -102,6 +102,9 @@ let busy = false;
 let stopFlag = false;
 let activeController = null;
 let lastRequestAt = 0;
+let isGenerating = false;
+let lastAutoRunAt = 0;
+let statsTimer = null;
 let autoTimer = null;
 let autoRunning = false;
 let decorateTimer = null;
@@ -204,13 +207,9 @@ function estimateTokens(text) {
     return Math.round(cjk + (s.length - cjk) / 4);
 }
 async function countTokensSafe(text) {
-    try {
-        const fn = getCtx()?.getTokenCountAsync;
-        if (typeof fn === 'function') {
-            const n = await Promise.resolve(fn(String(text || '')));
-            if (Number.isFinite(n) && n > 0) return Math.round(n);
-        }
-    } catch { /* 主连接 tokenizer 不可用时退回估算 */ }
+    // 刻意不调用 ST 的 getTokenCountAsync：OpenAI 主连接下它会向
+    // /api/tokenizers/openai/count 发 POST，整段聊天每次变化都会多一个请求。
+    // 面板只需要估算值，纯本地计算即可，避免放大聊天请求数。
     return estimateTokens(text);
 }
 function cleanSummary(text) {
@@ -552,6 +551,10 @@ function applyReplacements(reps, targetChat) {
     }
 }
 async function persist() {
+    // 生成中重绘会打断流式输出，先等这次回复结束
+    if (isGenerating) {
+        try { await waitForGenerationIdle(); } catch (e) { log(`等待生成结束：${e?.message || e}`, 'err'); }
+    }
     const ctx = getCtx();
     try { await ctx?.saveChat?.(); } catch (e) { log(`保存聊天失败：${e?.message || e}`, 'err'); }
     try { await ctx?.printMessages?.(); } catch (e) { log(`重绘聊天失败：${e?.message || e}`, 'err'); }
@@ -571,6 +574,12 @@ function getPendingInfo() {
     return { anchor, start, end, pending: Math.max(0, end - start + 1) };
 }
 
+/** 自动压缩单次最多处理几段，0 = 不限 */
+function capAutoSegments(segments) {
+    const cap = Math.max(0, Number(config.auto.maxChunks) || 0);
+    return cap > 0 && segments.length > cap ? segments.slice(0, cap) : segments;
+}
+
 async function runCompression({ from, to, chunk, mode, skip, reason = '手动' }) {
     if (busy) { toast('已有压缩任务在运行', 'warning'); return; }
     const chat = getChat();
@@ -578,7 +587,15 @@ async function runCompression({ from, to, chunk, mode, skip, reason = '手动' }
     from = clampInt(from, 0, chat.length - 1, 0);
     to = clampInt(to, 0, chat.length - 1, chat.length - 1);
     if (from > to) [from, to] = [to, from];
-    const segments = splitSegments(chat, from, to, chunk, !!skip, mode === 'merge');
+    let segments = splitSegments(chat, from, to, chunk, !!skip, mode === 'merge');
+    // 自动压缩限制单次请求数：一次只处理前几段，剩下的等冷却结束后再继续
+    if (reason === '自动') {
+        const before = segments.length;
+        segments = capAutoSegments(segments);
+        if (segments.length < before) {
+            log(`自动压缩单次上限：本次只处理前 ${segments.length} 段，其余留到冷却后继续`);
+        }
+    }
     if (!segments.length) { toast('选中范围内没有可压缩的消息', 'warning'); return; }
     if (!String(config.api.url || config.api.proxy).trim()) {
         toast('请先在「API」页填写并保存连接配置', 'error'); switchTab('api'); return;
@@ -1131,6 +1148,23 @@ function openArchiveViewer({ blockIndex = null, floors = null, title = '' } = {}
 
 /* ---------------- 统计 / 装饰 ---------------- */
 
+/** 合并同一轮里的多次统计调用，避免每个消息事件都跑一遍 */
+function scheduleRefreshStats() {
+    clearTimeout(statsTimer);
+    statsTimer = setTimeout(refreshStats, 400);
+}
+/** 生成过程中绝不改 chat / 重绘，等这次回复结束再写入 */
+async function waitForGenerationIdle(shouldAbort) {
+    if (!isGenerating) return;
+    log('酒馆正在生成回复，等待生成结束后再写入聊天记录…');
+    const deadline = Date.now() + 5 * 60 * 1000;
+    while (isGenerating && Date.now() < deadline) {
+        if (shouldAbort?.()) throw new Error('请求已取消');
+        await new Promise(r => setTimeout(r, 200));
+    }
+    if (isGenerating) throw new Error('等待生成结束超时，已放弃本次写入');
+}
+
 async function refreshStats() {
     const chat = getChat();
     const blocks = chat.filter(m => m?.extra?.[MARK]);
@@ -1243,7 +1277,15 @@ function scheduleAuto(force = false) {
     clearTimeout(autoTimer);
     if (!config.auto.enabled && !force) return;
     autoTimer = setTimeout(async () => {
+        // 生成中不触发：避免改 chat / 重绘打断主聊天生成导致重试；生成结束后会再检测
+        if (isGenerating) {
+            if (force) toast('正在生成回复，结束后会自动检测', 'info');
+            return;
+        }
         if (busy || autoRunning) return;
+        // 冷却：两次自动压缩之间至少间隔设定秒数，避免频繁触发放大请求数
+        const cooldown = Math.max(0, Number(config.auto.cooldownSec) || 0) * 1000;
+        if (!force && Date.now() - lastAutoRunAt < cooldown) return;
         const info = getPendingInfo();
         const threshold = Math.max(2, Number(config.auto.interval) || 10);
         if (info.pending < threshold || info.end < info.start) {
@@ -1253,6 +1295,7 @@ function scheduleAuto(force = false) {
         }
         if (!config.auto.enabled && force) { toast('自动压缩未启用，仅完成检测', 'info'); return; }
         autoRunning = true;
+        lastAutoRunAt = Date.now();
         try {
             await runCompression({
                 from: info.start, to: info.end,
@@ -1266,9 +1309,9 @@ function scheduleAuto(force = false) {
 }
 function onChatEvent(kind) {
     scheduleDecorate();
-    refreshStats();
+    scheduleRefreshStats();
     const trigger = config.auto.trigger;
-    if (!config.auto.enabled) return;
+    if (!config.auto.enabled || isGenerating) return;
     if (kind === 'received' && (trigger === 'received' || trigger === 'both')) scheduleAuto();
     if (kind === 'sent' && (trigger === 'sent' || trigger === 'both')) scheduleAuto();
 }
@@ -1536,6 +1579,8 @@ function loadConfigToUI() {
     set('ccx-auto-chunk', config.auto.chunk);
     set('ccx-auto-keep', config.auto.keep);
     set('ccx-auto-trigger', config.auto.trigger);
+    set('ccx-auto-cooldown', config.auto.cooldownSec);
+    set('ccx-auto-maxchunks', config.auto.maxChunks);
     const al = $id('ccx-auto-log');
     if (al) al.textContent = (config.auto.log || []).join('\n') || '暂无自动压缩记录。';
     // 备份 / 高级
@@ -1595,6 +1640,8 @@ function syncFromUI() {
     config.auto.chunk = Math.max(1, n('ccx-auto-chunk', 10));
     config.auto.keep = Math.max(0, n('ccx-auto-keep', 6));
     config.auto.trigger = v('ccx-auto-trigger') || 'received';
+    config.auto.cooldownSec = clampInt(v('ccx-auto-cooldown'), 0, 86400, 120);
+    config.auto.maxChunks = clampInt(v('ccx-auto-maxchunks'), 0, 1000, 3);
     config.adv.temperature = n('ccx-adv-temperature', 0.3);
     config.adv.sendTemp = c('ccx-adv-send-temp');
     config.adv.maxTokens = Math.max(256, n('ccx-adv-max-tokens', 4096));
@@ -2003,9 +2050,18 @@ async function boot() {
     try {
         ctx.eventSource?.on?.(et.MESSAGE_RECEIVED, () => onChatEvent('received'));
         ctx.eventSource?.on?.(et.MESSAGE_SENT, () => onChatEvent('sent'));
-        const reload = () => { refreshStats(); scheduleDecorate(); };
+        const reload = () => { scheduleRefreshStats(); scheduleDecorate(); };
         [et.CHAT_CHANGED, et.CHAT_LOADED, et.MESSAGE_EDITED, et.MESSAGE_DELETED, et.APP_READY, et.MORE_MESSAGES_LOADED]
             .filter(Boolean).forEach(ev => ctx.eventSource?.on?.(ev, reload));
+        // 生成期间禁止改动 chat 与重绘；结束后统一补一次自动检测
+        const onGenStart = () => { isGenerating = true; };
+        const onGenEnd = () => {
+            isGenerating = false;
+            scheduleRefreshStats();
+            if (config.auto.enabled) scheduleAuto();
+        };
+        [et.GENERATION_STARTED].filter(Boolean).forEach(ev => ctx.eventSource?.on?.(ev, onGenStart));
+        [et.GENERATION_ENDED, et.GENERATION_STOPPED].filter(Boolean).forEach(ev => ctx.eventSource?.on?.(ev, onGenEnd));
     } catch (e) {
         console.warn('[ContextCompressor] 事件绑定异常', e);
     }
