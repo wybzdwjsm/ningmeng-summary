@@ -101,9 +101,10 @@
             <label>段间最短（秒）<input type="number" id="ccx-throttle-min" min="0" step="1" value="5"></label>
             <label>段间最长（秒）<input type="number" id="ccx-throttle-max" min="0" step="1" value="15"></label>
           </div>
+          <label>段间固定停顿（秒，填 0 才用上面的随机区间）<input type="number" id="ccx-throttle-pause" min="0" step="5" value="0"></label>
           <div class="ccx-row"><button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-throttle-save">保存节流设置</button></div>
           <div class="ccx-status-line" id="ccx-throttle-hint">—</div>
-          <p class="ccx-note">「请求最小间隔」实际等待该值到两倍之间的随机数（填 2 → 每次等 2～4 秒）；「段间」是在此之外额外等待，默认 5～15 秒。自动压缩的触发时机也会自动加 0～3 秒抖动。等待过程中可以随时点「停止」，不会干等。</p>
+          <p class="ccx-note">「请求最小间隔」实际等待该值到两倍之间的随机数（填 2 → 每次等 2～4 秒）。<b>段间固定停顿</b>填大于 0 的数，每总结完一段就固定停这么多秒（比如填 30）；填 0 才使用上面的「段间最短 / 最长」随机区间。等待过程中随时可以点「停止」，不会干等。</p>
         </div>
       </details>
 
@@ -291,7 +292,7 @@
             <label>token 参数名<select id="ccx-adv-token-field"><option value="max_tokens">max_tokens</option><option value="max_completion_tokens">max_completion_tokens</option></select></label>
           </div>
           <div class="ccx-row ccx-row-2">
-            <label>请求超时（秒）<input type="number" id="ccx-adv-timeout" min="10" step="10" value="180"></label>
+            <label>请求超时（秒，长文本可调大）<input type="number" id="ccx-adv-timeout" min="10" step="30" value="600"></label>
             <label>单次送模最大原文字数（0=不限）<input type="number" id="ccx-adv-max-input" min="0" step="2000" value="0"></label>
           </div>
           <label>自定义代理 / 完整端点前缀（可留空）<input type="text" id="ccx-adv-proxy" placeholder="留空则直连上方 Base URL" spellcheck="false"></label>
