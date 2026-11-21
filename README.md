@@ -118,4 +118,4 @@ README.md       本文件
 
 ## 版本
 
-当前 v1.4.0。兼容 SillyTavern 1.18+，OpenAI Chat Completions 格式 API。
+当前 v1.4.1。兼容 SillyTavern 1.18+，OpenAI Chat Completions 格式 API。

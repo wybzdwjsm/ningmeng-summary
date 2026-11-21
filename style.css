@@ -293,6 +293,187 @@
 .ccx-settings-entry h4 { margin: 0 0 6px; font-size: 13px; }
 .ccx-settings-entry p { margin: 0 0 9px; font-size: 11.5px; line-height: 1.6; opacity: .8; }
 
+/* ===== 紫白黑视觉强化：高对比度、按键分级、状态栏醒目 ===== */
+:root {
+    --ccx-accent: #6d4df6;
+    --ccx-accent-2: #9b7dff;
+    --ccx-accent-deep: #4b2fc4;
+    --ccx-ink: #14121c;
+    --ccx-soft: #f1edff;
+}
+.ccx-panel.ccx-panel {
+    border: 1px solid #d8ceff;
+    box-shadow: 0 18px 60px rgba(20, 10, 60, .35);
+}
+/* 顶部：深紫近黑 */
+.ccx-panel .ccx-header {
+    background: linear-gradient(100deg, #17122b 0%, #2b1d55 55%, #3d2a75 100%);
+    border-bottom: 2px solid #8a6cff;
+    color: #ffffff;
+}
+.ccx-panel .ccx-title,
+.ccx-panel .ccx-title small { color: #ffffff; }
+.ccx-panel .ccx-title small { opacity: .72; }
+.ccx-panel .ccx-header .ccx-icon-btn {
+    color: #ffffff;
+    border-color: rgba(255, 255, 255, .35);
+    background: rgba(255, 255, 255, .08);
+}
+/* 页签：选中实心紫 */
+.ccx-panel .ccx-tabs { background: #faf9ff; border-bottom: 1px solid #e2dcff; padding-bottom: 6px; }
+.ccx-panel .ccx-tab-btn { color: #4a425e; font-weight: 700; border-radius: 7px; }
+.ccx-panel .ccx-tab-btn.active {
+    background: linear-gradient(135deg, #6d4df6, #8b6bff);
+    color: #ffffff;
+    border-bottom-color: transparent;
+    box-shadow: 0 3px 9px rgba(109, 77, 246, .35);
+}
+/* 主体白色、分区左紫条 */
+.ccx-panel .ccx-pane { background: #ffffff; color: #1d1a29; }
+.ccx-panel .ccx-sec {
+    background: #ffffff;
+    border: 1px solid #e4dfff;
+    border-left: 3px solid #6d4df6;
+    box-shadow: 0 1px 4px rgba(30, 20, 70, .07);
+}
+.ccx-panel .ccx-sec > summary {
+    color: #4b2fc4;
+    background: linear-gradient(90deg, #f3efff, #ffffff);
+    border-bottom: 1px solid transparent;
+}
+.ccx-panel .ccx-sec[open] > summary { border-bottom-color: #e9e4ff; }
+/* 输入框 */
+.ccx-panel label { color: #3b3550; font-weight: 600; }
+.ccx-panel input[type=text], .ccx-panel input[type=password], .ccx-panel input[type=number],
+.ccx-panel select, .ccx-panel textarea {
+    background: #ffffff;
+    color: #1d1a29;
+    border: 1px solid #cfc6f5;
+    box-shadow: inset 0 1px 2px rgba(30, 20, 70, .04);
+}
+.ccx-panel input:focus, .ccx-panel select:focus, .ccx-panel textarea:focus {
+    border-color: #6d4df6;
+    box-shadow: 0 0 0 3px rgba(109, 77, 246, .18);
+}
+/* 按钮分级 */
+.ccx-panel .ccx-row { gap: 10px; }
+.ccx-panel .ccx-btn {
+    background: #ffffff;
+    color: #3b3550;
+    border: 1px solid #cfc6f5;
+    font-weight: 700;
+    box-shadow: 0 1px 3px rgba(30, 20, 70, .10);
+    min-height: 30px;
+}
+.ccx-panel .ccx-btn:hover {
+    color: #4b2fc4;
+    border-color: #6d4df6;
+    background: #f7f4ff;
+    box-shadow: 0 4px 10px rgba(109, 77, 246, .22);
+}
+.ccx-panel .ccx-btn-primary {
+    background: linear-gradient(135deg, #6d4df6, #8f6dff);
+    color: #ffffff;
+    border: 1px solid #5a38dc;
+    box-shadow: 0 3px 10px rgba(109, 77, 246, .38);
+}
+.ccx-panel .ccx-btn-primary:hover {
+    color: #ffffff;
+    background: linear-gradient(135deg, #5e3ced, #8360ff);
+}
+.ccx-panel .ccx-btn-danger { color: #c3323f; border-color: #f0b8be; background: #fff6f7; }
+.ccx-panel .ccx-btn-danger:hover { color: #a51f2c; border-color: #d1525b; background: #ffecee; }
+.ccx-panel .ccx-btn-ghost { background: transparent; border-style: dashed; box-shadow: none; }
+/* 统计卡片 */
+.ccx-panel .ccx-stat {
+    background: #ffffff;
+    border: 1px solid #e2dcff;
+    border-top: 3px solid #6d4df6;
+    box-shadow: 0 2px 7px rgba(30, 20, 70, .08);
+}
+.ccx-panel .ccx-stat-v { color: #1d1a29; font-weight: 800; }
+.ccx-panel .ccx-stat-k { color: #7a7291; font-weight: 700; }
+.ccx-panel .ccx-stat-good .ccx-stat-v { color: #138a55; }
+/* 状态提示条 */
+.ccx-panel .ccx-status-line {
+    background: #f3efff;
+    border: 1px solid #ddd3ff;
+    border-left: 3px solid #6d4df6;
+    color: #3b2f6e;
+    font-weight: 700;
+}
+/* 进度条：醒目 */
+.ccx-panel .ccx-progress {
+    background: #f5f2ff;
+    border: 1px solid #cfc0ff;
+    border-radius: 9px;
+    padding: 9px 11px;
+    box-shadow: 0 2px 8px rgba(109, 77, 246, .12);
+}
+.ccx-panel .ccx-progress-bar {
+    height: 10px;
+    background: #ded5ff;
+    border-radius: 6px;
+    box-shadow: inset 0 1px 3px rgba(30, 20, 70, .18);
+}
+.ccx-panel .ccx-progress-bar span {
+    background: linear-gradient(90deg, #6d4df6, #b49aff);
+    box-shadow: 0 0 10px rgba(109, 77, 246, .65);
+}
+.ccx-panel .ccx-progress-text { color: #4b2fc4; font-weight: 800; font-size: 11.5px; }
+/* 底部状态栏：近黑底 + 亮紫上边 */
+.ccx-panel .ccx-footer {
+    background: #171227;
+    border-top: 2px solid #8a6cff;
+    padding: 9px 12px 10px;
+    box-shadow: 0 -8px 22px rgba(23, 18, 39, .18);
+}
+.ccx-panel .ccx-footer-head {
+    color: #ffffff; font-weight: 800; font-size: 11.5px; opacity: 1; letter-spacing: .2px;
+}
+.ccx-panel .ccx-footer-head .ccx-icon-btn {
+    color: #ffffff; border-color: rgba(255, 255, 255, .3); background: rgba(255, 255, 255, .08);
+}
+.ccx-panel .ccx-log {
+    background: rgba(255, 255, 255, .05);
+    color: rgba(255, 255, 255, .9);
+    opacity: 1;
+    padding: 6px 9px;
+    border-radius: 6px;
+    min-height: 36px;
+    font-size: 11px;
+}
+.ccx-panel .ccx-log div { border-bottom-color: rgba(255, 255, 255, .10); padding: 2px 0; }
+.ccx-panel .ccx-log .ccx-log-ok { color: #6ef0ad; }
+.ccx-panel .ccx-log .ccx-log-err { color: #ff9aa2; }
+/* 聊天区压缩块按钮 */
+#chat .ccx-block-btn {
+    background: #ffffff;
+    color: #4b2fc4;
+    border: 1px solid #6d4df6;
+    font-weight: 800;
+    box-shadow: 0 1px 4px rgba(109, 77, 246, .25);
+}
+#chat .ccx-block-btn:hover { background: #6d4df6; color: #ffffff; }
+/* 原文条目 / 查看器 */
+.ccx-panel .ccx-arch-item {
+    border: 1px solid #ded7ff; background: #ffffff; box-shadow: 0 1px 3px rgba(30, 20, 70, .05);
+}
+.ccx-archive { border-top: 3px solid #6d4df6; }
+.ccx-archive-head { background: #1b1533; color: #ffffff; border-bottom: 2px solid #6d4df6; }
+.ccx-archive-head strong, .ccx-archive-sub { color: #ffffff; }
+.ccx-archive-foot { background: #171227; }
+.ccx-archive-foot .ccx-btn { background: #ffffff; }
+.ccx-archive-foot .ccx-btn-primary { background: linear-gradient(135deg, #6d4df6, #8f6dff); color: #ffffff; }
+.ccx-archive-status { color: #ffffff; }
+.ccx-modal-mask { z-index: 9600; }
+/* 浮球 */
+#ccx-ball {
+    border: 2px solid rgba(255, 255, 255, .85);
+    box-shadow: 0 8px 26px rgba(80, 50, 190, .55), inset 0 1px 2px rgba(255, 255, 255, .4);
+    font-weight: 800;
+}
+
 @media (max-width: 620px) {
     .ccx-panel { right: 8px; left: 8px; width: auto; bottom: 120px; max-height: 76vh; }
     #ccx-ball { right: 14px; bottom: 76px; width: 50px; height: 50px; font-size: 20px; }
