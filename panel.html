@@ -178,6 +178,18 @@
         </div>
       </details>
       <details class="ccx-sec">
+        <summary>压缩自检 · 省略了什么（含破甲词）</summary>
+        <div class="ccx-sec-body">
+          <p class="ccx-note">每段压缩完成后，插件会再发一次请求，让模型对照原文列出摘要<b>省略了哪些会影响后续剧情的信息</b>。结果保存在压缩块里，点聊天区压缩块上的「自检」按钮查看；<b>不会进入发给模型的上下文</b>，不浪费 token。自检失败不影响压缩结果。</p>
+          <label class="ccx-check"><input type="checkbox" id="ccx-check-enabled" checked> 启用压缩后自检（每段多一次请求，同样受节流控制）</label>
+          <p class="ccx-note"><b>破甲词</b>：自检请求专用的前置系统提示，让模型严格挑错、不客套。</p>
+          <textarea id="ccx-check-jailbreak" rows="4" spellcheck="false"></textarea>
+          <p class="ccx-note"><b>自检提示词</b>：定义检查什么、怎么输出。</p>
+          <textarea id="ccx-check-prompt" rows="10" spellcheck="false"></textarea>
+          <div class="ccx-row"><button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-save-check">保存自检设置</button><button type="button" class="ccx-btn" id="ccx-btn-reset-check">恢复默认</button></div>
+        </div>
+      </details>
+      <details class="ccx-sec">
         <summary>压缩块显示模板</summary>
         <div class="ccx-sec-body">
           <p class="ccx-note">可用占位符：<code>{from}</code> 起始楼层、<code>{to}</code> 结束楼层、<code>{summary}</code> 压缩正文。这段文本就是聊天里实际显示 / 发给模型的内容。</p>

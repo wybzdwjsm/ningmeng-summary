@@ -52,6 +52,21 @@ const PRESETS = {
 5. 结果长度控制在原文的 1/2 以内，语言与原文主要语言一致，只输出记录正文。`,
 };
 
+/** 压缩自检：对照原文挑出摘要漏掉的信息。只输出清单，不进入上下文。 */
+const DEFAULT_CHECK_PROMPT = `你是「压缩质量审计员」。下面给出【聊天原文】和【前情摘要】。请核对摘要，列出原文中确实存在、但摘要里被省略或含糊掉、且可能影响后续剧情的信息。
+
+重点检查：
+1. 会影响后续剧情的具体名称、数字、时间、地点、物品、状态、伤势、承诺与约定；
+2. 尚未解决的冲突、伏笔、悬而未决的问题；
+3. 人物关系的明确变化。
+
+输出格式：每条一行，以「- 」开头，写清楚「原文有什么 / 摘要漏了什么」。
+如果摘要已经完整、没有值得补回的内容，只输出一行：\`- 无遗漏\`。
+不要评价摘要写得好不好，不要重复摘要已经写清楚的内容，不要新增原文里没有的信息，不要续写剧情。
+只输出遗漏清单，不要标题、解释或代码块。`;
+/** 破甲词：只用于自检请求的前置系统提示，让模型严格挑错、不客套 */
+const DEFAULT_CHECK_JAILBREAK = '你是严格的审计员。不要客套，不要因为摘要大体正确就放过细节遗漏。宁可多报一条可疑遗漏，也不要为了显得「通过」而写「无遗漏」。只依据给定原文判断，不推测、不脑补。';
+
 const DEFAULT_BLOCK_TEMPLATE = `【前情压缩 · 原第 {from}–{to} 楼】\n{summary}`;
 const GUIDE_TEXT = '（以上为已发生剧情的压缩记录，请把它视作真实发生过的上文，在此基础上自然延续。）';
 const DEFAULT_RECOMPRESS_PROMPT = `把下面几段「前情压缩记录」合并成一份更紧凑的记录。
@@ -65,6 +80,8 @@ const DEFAULT_CONFIG = {
     preset: 'balanced',
     blockTemplate: DEFAULT_BLOCK_TEMPLATE,
     recompressPrompt: DEFAULT_RECOMPRESS_PROMPT,
+    // 自检（压缩后多一步）：结果存 extra.ccx_check，不进上下文
+    check: { enabled: true, prompt: DEFAULT_CHECK_PROMPT, jailbreak: DEFAULT_CHECK_JAILBREAK },
     manual: { from: 0, to: 0, chunk: 10, mode: 'chunk', skipCompressed: true },
     // 输出字数：off / ratio(按原文百分比) / perChunk(每段固定字数) / total(整次总字数，均分到各段)
     length: { mode: 'off', ratio: 20, perChunk: 300, total: 800, override: true },
@@ -405,6 +422,30 @@ async function requestSummary(originalText, promptText, targetChars = null) {
     if (!cleaned) throw new Error('模型返回内容清洗后为空');
     return cleaned;
 }
+/** 自检：把原文与摘要一起交给模型，让它列出被省略的关键信息 */
+async function requestCheck(originalText, summaryText) {
+    const cfg = config.check || DEFAULT_CONFIG.check;
+    const sys = [String(cfg.jailbreak || '').trim(), String(cfg.prompt || DEFAULT_CHECK_PROMPT).trim()].filter(Boolean);
+    if (!sys.length) return '';
+    const messages = [
+        { role: 'system', content: sys.join('\n\n----\n\n') },
+        {
+            role: 'user',
+            content: `【聊天原文】\n\n${originalText}\n\n【前情摘要】\n\n${summaryText}\n\n请按系统提示输出遗漏清单。`,
+        },
+    ];
+    const { content } = await callChat(messages);
+    return cleanCheckResult(content);
+}
+function cleanCheckResult(text) {
+    const lines = String(text || '').split(/\r?\n/)
+        .map(s => s.trim())
+        .filter(s => /^[-•]\s+/.test(s))
+        .map(s => s.replace(/^[-•]\s+/, '- ').trim())
+        .filter(Boolean);
+    return [...new Set(lines)].slice(0, 30).join('\n');
+}
+
 async function loadModels() {
     const data = await apiFetch(config.api.modelsPath || '/models', null, 40);
     const raw = Array.isArray(data?.data) ? data.data
@@ -650,6 +691,17 @@ async function runCompression({ from, to, chunk, mode, skip, reason = '手动' }
                     afterTokens: estimateTokens(summary),
                 };
                 const msg = makeBlock(summary, seg.indices, originals.map(clone), stats, originals[0]);
+                // 自检：额外一次请求，挑出摘要省略了什么；结果存 extra，不进上下文
+                if (config.check?.enabled && summary) {
+                    try {
+                        const checkText = await requestCheck(inputText, summary);
+                        msg.extra.ccx_check = checkText || '';
+                        log(`✓ 第 ${i + 1} 段自检完成：${checkText ? checkText.split('\n').length : 0} 条遗漏`, 'ok');
+                    } catch (e) {
+                        msg.extra.ccx_check = '';
+                        log(`第 ${i + 1} 段自检失败（不影响压缩结果）：${friendlyError(e)}`, 'err');
+                    }
+                }
                 reps.push({ indices: seg.indices, message: msg });
                 okCount++;
                 log(`✓ 第 ${i + 1} 段完成：${first}–${last} 楼，${beforeChars} 字 → ${summary.length} 字${targetChars ? `（目标 ${targetChars} 字）` : ''}`, 'ok');
@@ -742,6 +794,11 @@ async function recompress() {
             beforeTokens: estimateTokens(text), afterTokens: estimateTokens(summary),
         };
         const msg = makeBlock(summary, idxs, sortedOriginals, stats, blocks[0], sortedFloors);
+        // 二次压缩保留各子块的自检结果，供用户对照
+        const mergedChecks = blocks.map(b => String(b.extra?.ccx_check || '')).filter(Boolean).join('\n');
+        if (mergedChecks) {
+            msg.extra.ccx_check = [...new Set(mergedChecks.split('\n').filter(Boolean))].slice(0, 30).join('\n');
+        }
         if (sortedFloors.length) {
             msg.extra.ccx_count = sortedOriginals.length;
             msg.extra.ccx_range = [sortedFloors[0], sortedFloors[sortedFloors.length - 1]];
@@ -1036,6 +1093,96 @@ function renderArchiveBlocks() {
     });
     if (!n) box.appendChild(ccxEl('div', 'ccx-arch-empty', '当前聊天里还没有压缩块。'));
 }
+/* ---------------- 压缩块编辑 / 自检结果 ---------------- */
+
+let blockEditorEl = null;
+function closeBlockEditor() {
+    try { blockEditorEl?.remove?.(); } catch { /* noop */ }
+    blockEditorEl = null;
+}
+async function saveBlockEdit(blockIndex, text) {
+    const chat = getChat();
+    const m = chat[blockIndex];
+    if (!m?.extra?.[MARK]) { toast('该位置已不是压缩块，请重新打开面板', 'error'); return; }
+    const clean = String(text ?? '').trim();
+    if (!clean) { toast('内容不能为空', 'warning'); return; }
+    m.mes = clean;
+    if (Array.isArray(m.swipes) && m.swipes.length) {
+        const idx = Math.max(0, Math.min(Number(m.swipe_id) || 0, m.swipes.length - 1));
+        m.swipes[idx] = clean;
+    } else {
+        m.swipes = [clean];
+        m.swipe_id = 0;
+    }
+    m.extra.ccx_edited = Date.now();
+    await persist();
+    log(`压缩块内容已手动修改（当前第 ${blockIndex} 楼）`, 'ok');
+    toast('已保存并写入聊天记录', 'success');
+    closeBlockEditor();
+    decorateBlocks();
+}
+function openBlockEditor(blockIndex, mode = 'edit') {
+    closeBlockEditor();
+    const m = getChat()[blockIndex];
+    if (!m?.extra?.[MARK]) { toast('该位置已不是压缩块', 'error'); return; }
+    const isCheck = mode === 'check';
+    const text = isCheck ? String(m.extra?.ccx_check || '') : String(m.mes || '');
+    const range = Array.isArray(m.extra?.ccx_range) ? m.extra.ccx_range.join('–') : '?';
+    const mask = ccxEl('div', 'ccx-modal-mask');
+    const win = ccxEl('div', 'ccx-archive ccx-editor');
+
+    const head = ccxEl('div', 'ccx-archive-head');
+    const headText = ccxEl('div');
+    headText.appendChild(ccxEl('strong', '', isCheck ? `自检结果 · 原第 ${range} 楼` : `编辑压缩块 · 原第 ${range} 楼`));
+    headText.appendChild(ccxEl('div', 'ccx-archive-sub',
+        isCheck ? '这段压缩省略了什么 · 只读，不进入上下文'
+            : '这里的内容就是发给模型的上下文，保存后直接写回聊天文件'));
+    const close = ccxEl('button', 'ccx-icon-btn', '×');
+    close.type = 'button';
+    close.addEventListener('click', closeBlockEditor);
+    head.appendChild(headText);
+    head.appendChild(close);
+    win.appendChild(head);
+
+    const body = ccxEl('div', 'ccx-editor-body');
+    const ta = document.createElement('textarea');
+    ta.className = 'ccx-editor-area';
+    ta.value = text;
+    ta.spellcheck = false;
+    if (isCheck) ta.readOnly = true;
+    body.appendChild(ta);
+    win.appendChild(body);
+
+    const foot = ccxEl('div', 'ccx-archive-foot');
+    foot.appendChild(ccxEl('span', 'ccx-archive-status',
+        isCheck ? (text ? `${text.split('\n').length} 条遗漏` : '这段压缩没有自检结果') : `${text.length} 字`));
+    if (isCheck) {
+        const copy = ccxEl('button', 'ccx-btn', '复制清单');
+        copy.type = 'button';
+        copy.addEventListener('click', async () => {
+            try { await globalThis.navigator?.clipboard?.writeText(ta.value); toast('已复制', 'success'); }
+            catch { toast('复制失败，请手动选中文本', 'warning'); }
+        });
+        foot.appendChild(copy);
+    } else {
+        const save = ccxEl('button', 'ccx-btn ccx-btn-primary', '保存并写入聊天');
+        save.type = 'button';
+        save.addEventListener('click', async () => { await saveBlockEdit(blockIndex, ta.value); });
+        foot.appendChild(save);
+    }
+    const cancel = ccxEl('button', 'ccx-btn', '关闭');
+    cancel.type = 'button';
+    cancel.addEventListener('click', closeBlockEditor);
+    foot.appendChild(cancel);
+    win.appendChild(foot);
+
+    mask.addEventListener('click', e => { if (e.target === mask) closeBlockEditor(); });
+    mask.appendChild(win);
+    document.body.appendChild(mask);
+    blockEditorEl = mask;
+    if (!isCheck) { try { ta.focus?.(); } catch { /* noop */ } }
+}
+
 function closeArchiveViewer() {
     try { archiveViewerEl?.remove?.(); } catch { /* noop */ }
     archiveViewerEl = null;
@@ -1257,6 +1404,18 @@ function decorateBlocks() {
             openArchiveViewer({ blockIndex: i });
         });
         bar.appendChild(viewBtn);
+
+        const editBtn = ccxEl('button', 'ccx-block-btn', '编辑');
+        editBtn.type = 'button';
+        editBtn.title = '直接修改这段压缩文字，保存后写回聊天文件（这就是发给模型的上下文）';
+        editBtn.addEventListener('click', e => { e.stopPropagation(); openBlockEditor(i, 'edit'); });
+        bar.appendChild(editBtn);
+
+        const checkBtn = ccxEl('button', 'ccx-block-btn', '自检');
+        checkBtn.type = 'button';
+        checkBtn.title = '查看这段压缩省略了哪些内容（只读）';
+        checkBtn.addEventListener('click', e => { e.stopPropagation(); openBlockEditor(i, 'check'); });
+        bar.appendChild(checkBtn);
 
         const allBtn = ccxEl('button', 'ccx-block-btn', '全部还原');
         allBtn.type = 'button';
@@ -1595,6 +1754,11 @@ function loadConfigToUI() {
     set('ccx-task-prompt', config.taskPrompt);
     set('ccx-block-template', config.blockTemplate);
     set('ccx-recompress-prompt', config.recompressPrompt);
+    // 压缩自检
+    const ck = config.check || DEFAULT_CONFIG.check;
+    set('ccx-check-enabled', ck.enabled, true);
+    set('ccx-check-jailbreak', ck.jailbreak);
+    set('ccx-check-prompt', ck.prompt);
     // 自动
     set('ccx-auto-enabled', config.auto.enabled, true);
     set('ccx-auto-interval', config.auto.interval);
@@ -1658,6 +1822,10 @@ function syncFromUI() {
     config.preset = v('ccx-preset-select') || 'custom';
     config.blockTemplate = v('ccx-block-template') || DEFAULT_BLOCK_TEMPLATE;
     config.recompressPrompt = v('ccx-recompress-prompt') || DEFAULT_RECOMPRESS_PROMPT;
+    config.check = config.check || clone(DEFAULT_CONFIG.check);
+    config.check.enabled = c('ccx-check-enabled');
+    config.check.jailbreak = v('ccx-check-jailbreak');
+    config.check.prompt = v('ccx-check-prompt') || DEFAULT_CHECK_PROMPT;
     config.auto.enabled = c('ccx-auto-enabled');
     config.auto.interval = Math.max(2, n('ccx-auto-interval', 10));
     config.auto.chunk = Math.max(1, n('ccx-auto-chunk', 10));
@@ -1827,6 +1995,7 @@ function bindUI() {
     });
     document.addEventListener('keydown', e => {
         if (e.key !== 'Escape') return;
+        if (blockEditorEl) { closeBlockEditor(); return; }
         if (archiveViewerEl) { closeArchiveViewer(); return; }
         if (panelEl && !panelEl.hidden) togglePanel(false);
     });
@@ -1970,6 +2139,14 @@ function bindUI() {
     $id('ccx-btn-reset-re')?.addEventListener('click', () => {
         const el = $id('ccx-recompress-prompt'); if (el) el.value = DEFAULT_RECOMPRESS_PROMPT;
         syncFromUI(); toast('已恢复默认', 'success');
+    });
+    $id('ccx-btn-save-check')?.addEventListener('click', () => {
+        syncFromUI(); toast('自检设置已保存', 'success');
+    });
+    $id('ccx-btn-reset-check')?.addEventListener('click', () => {
+        const a = $id('ccx-check-prompt'); if (a) a.value = DEFAULT_CHECK_PROMPT;
+        const b = $id('ccx-check-jailbreak'); if (b) b.value = DEFAULT_CHECK_JAILBREAK;
+        syncFromUI(); toast('已恢复默认自检提示词与破甲词', 'success');
     });
 
     // 自动
