@@ -238,6 +238,13 @@
 .ccx-block-btn:hover { opacity: 1; border-color: var(--ccx-accent); }
 
 /* ---------- 原文预览 / 查看器 ---------- */
+.ccx-panel .ccx-auto-countdown {
+    font-size: 13px;
+    font-weight: 800;
+    padding: 10px 12px;
+    border-left: 4px solid #6d4df6;
+    letter-spacing: .2px;
+}
 .ccx-len-field[hidden] { display: none !important; }
 .ccx-arch-floor { flex: 1 1 180px; }
 .ccx-arch-result {

@@ -106,6 +106,7 @@ let isGenerating = false;
 let lastAutoRunAt = 0;
 let statsTimer = null;
 let autoTimer = null;
+let autoHintTimer = null;
 let autoRunning = false;
 let decorateTimer = null;
 let panelReady = false;
@@ -1162,6 +1163,31 @@ function scheduleRefreshStats() {
     statsTimer = setTimeout(refreshStats, 400);
 }
 
+/** 自动页的「还差几楼触发」状态：区分关闭 / 生成中 / 冷却中 / 已达标 / 未达标 */
+function updateAutoHint() {
+    const info = getPendingInfo();
+    const threshold = Math.max(2, Number(config.auto.interval) || 10);
+    let status;
+    if (!config.auto.enabled) {
+        status = `自动压缩已关闭 · 当前待压缩 ${info.pending} 楼`;
+    } else if (isGenerating) {
+        status = `生成中暂不检测 · 当前 ${info.pending}/${threshold} 楼`;
+    } else {
+        const left = Math.max(0, (Number(config.auto.cooldownSec) || 0) * 1000 - (Date.now() - lastAutoRunAt));
+        if (left > 0) {
+            status = `冷却中 ${Math.ceil(left / 1000)} 秒 · 当前 ${info.pending}/${threshold} 楼`;
+        } else if (info.pending >= threshold) {
+            status = `已达标 ${info.pending}/${threshold} 楼，即将触发自动压缩`;
+        } else {
+            status = `再增加 ${threshold - info.pending} 楼触发（当前 ${info.pending}/${threshold}）`;
+        }
+    }
+    const tail = ` · 锚点 ${info.anchor < 0 ? '无' : `${info.anchor} 楼`} · 可压缩 ${info.start}–${info.end}`;
+    const hint = $id('ccx-auto-hint');
+    if (hint) hint.textContent = status + tail;
+    const countdown = $id('ccx-auto-countdown');
+    if (countdown) countdown.textContent = status;
+}
 async function refreshStats() {
     const chat = getChat();
     const blocks = chat.filter(m => m?.extra?.[MARK]);
@@ -1176,11 +1202,7 @@ async function refreshStats() {
     set('ccx-stat-chars', chars.toLocaleString('zh-CN'));
     set('ccx-stat-saved', saved.toLocaleString('zh-CN'));
     set('ccx-stat-tokens', '…');
-    const info = getPendingInfo();
-    const hint = $id('ccx-auto-hint');
-    if (hint) {
-        hint.textContent = `待压缩 ${info.pending} 楼（阈值 ${config.auto.interval}）· 上次压缩锚点 ${info.anchor < 0 ? '无' : `${info.anchor} 楼`} · 可压缩区间 ${info.start}–${info.end}`;
-    }
+    updateAutoHint();
     const allText = chat.map(m => String(m?.mes ?? '')).join('\n');
     countTokensSafe(allText).then(n => set('ccx-stat-tokens', n.toLocaleString('zh-CN')));
     const to = $id('ccx-manual-to');
@@ -2071,6 +2093,9 @@ async function boot() {
     refreshStats();
     try { await refreshSnapshots(); } catch { /* noop */ }
     log('柠檬总结已就绪 · 压缩结果直接写入聊天记录，不写世界书', 'ok');
+    // 自动页倒计时会随冷却秒数 / 生成状态变化，定时刷新
+    clearInterval(autoHintTimer);
+    autoHintTimer = setInterval(() => { try { updateAutoHint(); } catch { /* noop */ } }, 2000);
 }
 
 if (document.readyState === 'loading') {
