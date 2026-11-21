@@ -163,7 +163,9 @@
         <div class="ccx-sec-body">
           <p class="ccx-note">这里填你自己的内容，插件会<strong>原样</strong>作为第一条 system 消息发送，内置默认为空、不预置任何内容。留空即完全不发送。</p>
           <textarea id="ccx-jailbreak" rows="6" placeholder="在此粘贴你自己的破限词 / 角色定义……"></textarea>
-          <div class="ccx-row"><button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-save-jb">保存破限词</button><button type="button" class="ccx-btn ccx-btn-danger" id="ccx-btn-clear-jb">清空</button></div>
+          <p class="ccx-note"><b>破甲词</b>：压缩主请求专用，紧跟破限词之后发送。用来让模型专注文本改写、不因自我审查而中断任务或加免责声明。内容由你自定，插件原样发送；留空则不发送。</p>
+          <textarea id="ccx-break-armor" rows="5" spellcheck="false" placeholder="破甲词（压缩请求专用）……"></textarea>
+          <div class="ccx-row"><button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-save-jb">保存破限词 / 破甲词</button><button type="button" class="ccx-btn ccx-btn-danger" id="ccx-btn-clear-jb">清空破限词</button></div>
         </div>
       </details>
       <details class="ccx-sec" open>
@@ -182,9 +184,7 @@
         <div class="ccx-sec-body">
           <p class="ccx-note">每段压缩完成后，插件会再发一次请求，让模型对照原文列出摘要<b>省略了哪些会影响后续剧情的信息</b>。结果保存在压缩块里，点聊天区压缩块上的「自检」按钮查看；<b>不会进入发给模型的上下文</b>，不浪费 token。自检失败不影响压缩结果。</p>
           <label class="ccx-check"><input type="checkbox" id="ccx-check-enabled" checked> 启用压缩后自检（每段多一次请求，同样受节流控制）</label>
-          <p class="ccx-note"><b>破甲词</b>：自检请求专用的前置系统提示，让模型严格挑错、不客套。</p>
-          <textarea id="ccx-check-jailbreak" rows="4" spellcheck="false"></textarea>
-          <p class="ccx-note"><b>自检提示词</b>：定义检查什么、怎么输出。</p>
+          <p class="ccx-note"><b>自检提示词</b>：定义检查什么、怎么输出。自检请求只发送这一段，不含破限词与破甲词。</p>
           <textarea id="ccx-check-prompt" rows="10" spellcheck="false"></textarea>
           <div class="ccx-row"><button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-save-check">保存自检设置</button><button type="button" class="ccx-btn" id="ccx-btn-reset-check">恢复默认</button></div>
         </div>
