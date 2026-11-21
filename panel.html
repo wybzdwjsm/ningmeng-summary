@@ -212,7 +212,7 @@
             <label>两次自动压缩最小间隔（秒）<input type="number" id="ccx-auto-cooldown" min="0" step="30" value="120"></label>
             <label>单次最多压缩几段（0=不限）<input type="number" id="ccx-auto-maxchunks" min="0" step="1" value="3"></label>
           </div>
-          <p class="ccx-note">为避免请求过多：两次自动压缩之间强制冷却，单次最多只发这么多段请求，剩下的留到冷却结束后继续。自动压缩也<b>不会在 AI 生成回复时启动或写入</b>，会等这次回复结束再处理。</p>
+          <p class="ccx-note">为避免请求过多：两次自动压缩之间强制冷却，单次最多只发这么多段请求，剩下的留到冷却结束后继续。自动压缩<b>不会在 AI 生成回复时启动</b>，会等这次回复结束后再检测；手动压缩不受此限制、不会被阻塞。</p>
           <div class="ccx-row"><button type="button" class="ccx-btn ccx-btn-primary" id="ccx-btn-save-auto">保存自动设置</button><button type="button" class="ccx-btn" id="ccx-btn-check-auto">立即检测一次</button></div>
           <div class="ccx-status-line" id="ccx-auto-hint">—</div>
         </div>

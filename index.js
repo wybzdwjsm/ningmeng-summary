@@ -551,10 +551,8 @@ function applyReplacements(reps, targetChat) {
     }
 }
 async function persist() {
-    // 生成中重绘会打断流式输出，先等这次回复结束
-    if (isGenerating) {
-        try { await waitForGenerationIdle(); } catch (e) { log(`等待生成结束：${e?.message || e}`, 'err'); }
-    }
+    // 不再等待生成结束：旧版阻塞等待会让压缩看起来"卡住"，
+    // 且 ST 生成异常漏发结束事件时会一直挂住。写入直接进行。
     const ctx = getCtx();
     try { await ctx?.saveChat?.(); } catch (e) { log(`保存聊天失败：${e?.message || e}`, 'err'); }
     try { await ctx?.printMessages?.(); } catch (e) { log(`重绘聊天失败：${e?.message || e}`, 'err'); }
@@ -1152,17 +1150,6 @@ function openArchiveViewer({ blockIndex = null, floors = null, title = '' } = {}
 function scheduleRefreshStats() {
     clearTimeout(statsTimer);
     statsTimer = setTimeout(refreshStats, 400);
-}
-/** 生成过程中绝不改 chat / 重绘，等这次回复结束再写入 */
-async function waitForGenerationIdle(shouldAbort) {
-    if (!isGenerating) return;
-    log('酒馆正在生成回复，等待生成结束后再写入聊天记录…');
-    const deadline = Date.now() + 5 * 60 * 1000;
-    while (isGenerating && Date.now() < deadline) {
-        if (shouldAbort?.()) throw new Error('请求已取消');
-        await new Promise(r => setTimeout(r, 200));
-    }
-    if (isGenerating) throw new Error('等待生成结束超时，已放弃本次写入');
 }
 
 async function refreshStats() {
